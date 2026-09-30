@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Book Notes Zettelkasten Atomic Log</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen py-8 px-4">
+<div class="max-w-4xl mx-auto">
+<h1 class="text-3xl font-bold text-violet-400 mb-1">Zettelkasten Atomic Log</h1>
+<p class="text-gray-400 text-sm mb-6">Capture permanent atomic notes · tag-based filtering · related notes by tag overlap</p>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+  <div class="md:col-span-1">
+    <div class="bg-gray-800 rounded-2xl p-5 sticky top-4">
+      <p class="text-sm font-semibold text-gray-300 mb-3">New Note</p>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1" for="noteTitle">Title</label>
+          <input id="noteTitle" type="text" placeholder="Concept or idea title"
+            class="w-full bg-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            aria-label="Note title">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1" for="noteSource">Source Book</label>
+          <input id="noteSource" type="text" placeholder="Book title / author"
+            class="w-full bg-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            aria-label="Source book name">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1" for="noteTags">Tags (comma-separated)</label>
+          <input id="noteTags" type="text" placeholder="e.g. memory, learning, cognition"
+            class="w-full bg-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            aria-label="Comma-separated concept tags">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1" for="noteBody">Note Body</label>
+          <textarea id="noteBody" rows="5" placeholder="Atomic note body — one idea per note..."
+            class="w-full bg-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+            aria-label="Note body text"></textarea>
+        </div>
+        <button id="saveBtn" class="w-full py-2 bg-violet-600 hover:bg-violet-500 rounded-lg font-semibold transition text-sm"
+          aria-label="Save new note">Save Note</button>
+        <p id="saveMsg" class="text-green-400 text-xs text-center hidden">Note saved!</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="md:col-span-2 space-y-4">
+    <div class="flex gap-2 flex-wrap items-center">
+      <input id="searchInput" type="text" placeholder="Search notes..."
+        class="flex-1 min-w-32 bg-gray-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+        aria-label="Full-text search notes">
+      <div id="tagFilterBar" class="flex gap-1 flex-wrap" role="group" aria-label="Filter by tag"></div>
+      <button id="clearFilterBtn" class="text-xs text-gray-500 hover:text-gray-300 px-2 py-1 rounded" aria-label="Clear tag filter">Clear filter</button>
+    </div>
+    <p class="text-xs text-gray-500"><span id="noteCount">0</span> notes</p>
+    <div id="noteList" class="space-y-4"></div>
+    <p id="emptyNotes" class="text-gray-600 text-center py-10">No notes yet. Add your first atomic note!</p>
+  </div>
+</div>
+</div>
+
+<div id="detailModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-label="Note detail view">
+  <div class="bg-gray-800 rounded-2xl p-6 max-w-2xl w-full max-h-screen overflow-y-auto">
+    <div class="flex justify-between items-start mb-4">
+      <div>
+        <h2 id="detailTitle" class="text-xl font-bold text-violet-300"></h2>
+        <p id="detailSource" class="text-sm text-gray-400 mt-1"></p>
+      </div>
+      <button id="closeModal" class="text-gray-400 hover:text-white text-2xl leading-none" aria-label="Close note detail">×</button>
+    </div>
+    <div id="detailTags" class="flex gap-1 flex-wrap mb-4"></div>
+    <p id="detailBody" class="text-gray-200 text-sm whitespace-pre-wrap mb-5"></p>
+    <div id="relatedSection" class="hidden">
+      <p class="text-xs uppercase tracking-widest text-gray-500 mb-2">Related Notes (by tag overlap)</p>
+      <div id="relatedList" class="space-y-2"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const LS_KEY = 'zettelkasten_v1';
+let notes = [];
+let filterTag = null;
+
+function loadNotes() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; }
+}
+function saveNotes() { localStorage.setItem(LS_KEY, JSON.stringify(notes)); }
+
+function parseTags(str) {
+  return str.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+}
+
+function getAllTags() {
+  const set = new Set();
+  notes.forEach(n => n.tags.forEach(t => set.add(t)));
+  return [...set].sort();
+}
+
+function renderTagBar() {
+  const bar = document.getElementById('tagFilterBar');
+  bar.textContent = '';
+  getAllTags().forEach(tag => {
+    const btn = document.createElement('button');
+    btn.className = 'text-xs px-2 py-1 rounded-full transition ' +
+      (filterTag === tag ? 'bg-violet-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600');
+    btn.textContent = tag;
+    btn.setAttribute('aria-pressed', filterTag === tag ? 'true' : 'false');
+    btn.setAttribute('aria-label', 'Filter by tag: ' + tag);
+    btn.addEventListener('click', () => {
+      filterTag = filterTag === tag ? null : tag;
+      renderAll();
+    });
+    bar.appendChild(btn);
+  });
+}
+
+function matchesFilter(note, query) {
+  if (filterTag && !note.tags.includes(filterTag)) return false;
+  if (query) {
+    const q = query.toLowerCase();
+    return note.title.toLowerCase().includes(q) ||
+      note.source.toLowerCase().includes(q) ||
+      note.body.toLowerCase().includes(q) ||
+      note.tags.some(t => t.includes(q));
+  }
+  return true;
+}
+
+function renderAll() {
+  renderTagBar();
+  const query = document.getElementById('searchInput').value.trim();
+  const filtered = notes.filter(n => matchesFilter(n, query));
+  const list = document.getElementById('noteList');
+  const empty = document.getElementById('emptyNotes');
+  list.textContent = '';
+  document.getElementById('noteCount').textContent = filtered.length;
+  if (filtered.length === 0) { empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  filtered.forEach(note => {
+    const card = document.createElement('div');
+    card.className = 'bg-gray-800 rounded-xl p-4 cursor-pointer hover:bg-gray-750 hover:ring-1 hover:ring-violet-500 transition';
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', 'Open note: ' + note.title);
+    const h = document.createElement('div');
+    h.className = 'flex justify-between items-start mb-1';
+    const title = document.createElement('p');
+    title.className = 'font-semibold text-violet-300 text-sm';
+    title.textContent = note.title;
+    const src = document.createElement('p');
+    src.className = 'text-xs text-gray-500';
+    src.textContent = note.source;
+    h.appendChild(title); h.appendChild(src);
+    const body = document.createElement('p');
+    body.className = 'text-gray-400 text-xs line-clamp-2 mb-2';
+    body.textContent = note.body;
+    const tags = document.createElement('div');
+    tags.className = 'flex gap-1 flex-wrap';
+    note.tags.forEach(t => {
+      const span = document.createElement('span');
+      span.className = 'text-xs px-2 py-0.5 rounded-full bg-gray-700 text-violet-300';
+      span.textContent = t;
+      tags.appendChild(span);
+    });
+    card.appendChild(h); card.appendChild(body); card.appendChild(tags);
+    const open = () => openDetail(note.id);
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') open(); });
+    list.appendChild(card);
+  });
+}
+
+function openDetail(id) {
+  const note = notes.find(n => n.id === id);
+  if (!note) return;
+  document.getElementById('detailTitle').textContent = note.title;
+  document.getElementById('detailSource').textContent = note.source ? 'Source: ' + note.source : '';
+  document.getElementById('detailBody').textContent = note.body;
+  const tagsEl = document.getElementById('detailTags');
+  tagsEl.textContent = '';
+  note.tags.forEach(t => {
+    const span = document.createElement('span');
+    span.className = 'text-xs px-2 py-0.5 rounded-full bg-violet-900 text-violet-200';
+    span.textContent = t;
+    tagsEl.appendChild(span);
+  });
+  const related = notes.filter(n => n.id !== id && n.tags.some(t => note.tags.includes(t)));
+  const relSection = document.getElementById('relatedSection');
+  const relList = document.getElementById('relatedList');
+  relList.textContent = '';
+  if (related.length > 0) {
+    relSection.classList.remove('hidden');
+    related.slice(0, 5).forEach(r => {
+      const shared = r.tags.filter(t => note.tags.includes(t));
+      const row = document.createElement('div');
+      row.className = 'bg-gray-700 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-600';
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-label', 'Open related note: ' + r.title);
+      const titleEl = document.createElement('p');
+      titleEl.className = 'text-sm text-violet-300';
+      titleEl.textContent = r.title;
+      const sharedEl = document.createElement('p');
+      sharedEl.className = 'text-xs text-gray-500';
+      sharedEl.textContent = 'Shared tags: ' + shared.join(', ');
+      row.appendChild(titleEl); row.appendChild(sharedEl);
+      row.addEventListener('click', () => openDetail(r.id));
+      relList.appendChild(row);
+    });
+  } else {
+    relSection.classList.add('hidden');
+  }
+  document.getElementById('detailModal').classList.remove('hidden');
+}
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const title = document.getElementById('noteTitle').value.trim();
+  const source = document.getElementById('noteSource').value.trim();
+  const tags = parseTags(document.getElementById('noteTags').value);
+  const body = document.getElementById('noteBody').value.trim();
+  if (!title || !body) return;
+  notes.unshift({ id: Date.now(), title, source, tags, body, created: Date.now() });
+  saveNotes();
+  document.getElementById('noteTitle').value = '';
+  document.getElementById('noteSource').value = '';
+  document.getElementById('noteTags').value = '';
+  document.getElementById('noteBody').value = '';
+  const msg = document.getElementById('saveMsg');
+  msg.classList.remove('hidden');
+  setTimeout(() => msg.classList.add('hidden'), 1500);
+  renderAll();
+});
+
+document.getElementById('searchInput').addEventListener('input', renderAll);
+document.getElementById('clearFilterBtn').addEventListener('click', () => { filterTag = null; renderAll(); });
+document.getElementById('closeModal').addEventListener('click', () => document.getElementById('detailModal').classList.add('hidden'));
+document.getElementById('detailModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('detailModal')) document.getElementById('detailModal').classList.add('hidden');
+});
+
+notes = loadNotes();
+renderAll();
+</script>
+</body>
+</html>
